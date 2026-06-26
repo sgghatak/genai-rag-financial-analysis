@@ -2,22 +2,22 @@
 """Interactive query script for RAG Assistant."""
 
 import sys
-import os
+from pathlib import Path
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from rag.config import Settings
 from rag.core import RAGAssistant
 
 
 def main():
     """Run interactive RAG assistant."""
-    # Paths relative to data directory
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
-    index_path = os.path.join(data_dir, "faiss_index.idx")
-    chunks_path = os.path.join(data_dir, "chunks.pkl")
+    settings = Settings.from_env()
+    index_path = settings.data_dir / "faiss_index.idx"
+    chunks_path = settings.data_dir / "chunks.pkl"
 
-    if not os.path.exists(index_path):
+    if not index_path.exists():
         print(f"Error: Index not found at {index_path}")
         print("Please run scripts/build_index.py first")
         sys.exit(1)

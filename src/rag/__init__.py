@@ -7,6 +7,7 @@ A package for building and querying FAISS indexes with LLM-powered responses.
 __version__ = "0.1.0"
 __author__ = "Your Name"
 
-from .core import RAGAssistant, IndexBuilder
+from .config import Settings
+from .core import IndexBuilder, RAGAssistant, create_openai_client
 
-__all__ = ["RAGAssistant", "IndexBuilder"]
+__all__ = ["RAGAssistant", "IndexBuilder", "Settings", "create_openai_client"]

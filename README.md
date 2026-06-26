@@ -69,6 +69,8 @@ genai-rag-financial-analysis/
    OPENROUTER_API_KEY=your_key_here
    ```
 
+   You can copy `.env.example` for the full list of optional settings.
+
 ## Usage
 
 ### 1. Build Index from PDF
@@ -164,11 +166,19 @@ mypy src/rag/
 
 ## Configuration
 
-Key settings in `pyproject.toml`:
-- `chunk_size`: Text chunk size (default: 1000)
-- `chunk_overlap`: Overlap between chunks (default: 200)
-- `embedding_model`: OpenAI embedding model (default: text-embedding-3-small)
-- `llm_model`: LLM for responses (default: gpt-4.1-mini)
+Runtime settings are loaded from environment variables by `rag.config.Settings`.
+
+Common settings:
+- `OPENROUTER_API_KEY`: OpenRouter API key
+- `OPENROUTER_BASE_URL`: OpenAI-compatible API base URL
+- `RAG_EMBEDDING_MODEL`: Embedding model, default `openai/text-embedding-3-small`
+- `RAG_LLM_MODEL`: Chat model, default `openai/gpt-4.1-mini`
+- `RAG_PDF_PATH`: PDF to index
+- `RAG_DATA_DIR`: Directory for FAISS index, chunks, metadata, and memory
+- `RAG_CHUNK_SIZE`: Text chunk size, default `1000`
+- `RAG_CHUNK_OVERLAP`: Overlap between chunks, default `200`
+- `TESSERACT_CMD`: Tesseract executable path
+- `RAG_INSECURE_SKIP_TLS_VERIFY`: Local OpenSSL workaround; keep `false` in production
 
 ## Environment Variables
 
@@ -178,13 +188,21 @@ Create `.env` file in project root:
 OPENROUTER_API_KEY=your_openrouter_api_key
 ```
 
+For this local Windows environment, if OpenSSL fails with `OPENSSL_Applink`, add:
+
+```env
+RAG_INSECURE_SKIP_TLS_VERIFY=true
+```
+
+This disables TLS certificate verification and should not be used in production.
+
 ## Troubleshooting
 
 ### Tesseract not found (Windows)
 Install from: https://github.com/UB-Mannheim/tesseract/wiki
-Update the path in `scripts/build_index.py`:
-```python
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+Update the path in `.env`:
+```env
+TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
 ```
 
 ### FAISS index not found

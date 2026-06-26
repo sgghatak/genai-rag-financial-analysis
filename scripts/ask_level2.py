@@ -2,33 +2,31 @@
 """Advanced RAG with hybrid search and memory."""
 
 import sys
-import os
 import pickle
+from pathlib import Path
+
 import faiss
 import numpy as np
-from dotenv import load_dotenv
-from openai import OpenAI
 from rank_bm25 import BM25Okapi
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-load_dotenv(override=True)
+from rag.config import Settings
+from rag.core import create_openai_client
 
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY")
-)
+settings = Settings.from_env()
+client = create_openai_client()
 
 
-def load_resources(data_dir: str) -> tuple:
+def load_resources(data_dir: Path) -> tuple:
     """Load index, chunks, and metadata."""
-    index = faiss.read_index(os.path.join(data_dir, "faiss_index.idx"))
+    index = faiss.read_index(str(data_dir / "faiss_index.idx"))
 
-    with open(os.path.join(data_dir, "chunks.pkl"), "rb") as f:
+    with open(data_dir / "chunks.pkl", "rb") as f:
         chunks = pickle.load(f)
 
-    with open(os.path.join(data_dir, "chunk_metadata.pkl"), "rb") as f:
+    with open(data_dir / "chunk_metadata.pkl", "rb") as f:
         chunk_metadata = pickle.load(f)
 
     # Build BM25 index
@@ -45,7 +43,7 @@ def rewrite_query(question: str, history_text: str) -> str:
         return question
 
     response = client.chat.completions.create(
-        model="openai/gpt-4.1-mini",
+        model=settings.llm_model,
         messages=[
             {
                 "role": "system",
@@ -64,14 +62,14 @@ def rewrite_query(question: str, history_text: str) -> str:
 
 def main():
     """Run advanced RAG with memory and hybrid search."""
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
-    memory_file = os.path.join(data_dir, "memory.pkl")
+    data_dir = settings.data_dir
+    memory_file = data_dir / "memory.pkl"
 
     print("Loading resources...")
     index, chunks, chunk_metadata, bm25 = load_resources(data_dir)
 
     # Load or create conversation history
-    if os.path.exists(memory_file):
+    if memory_file.exists():
         with open(memory_file, "rb") as f:
             conversation_history = pickle.load(f)
         print(f"Loaded {len(conversation_history)} previous messages.")
@@ -102,7 +100,7 @@ def main():
 
             # Hybrid search: Vector + BM25
             query_embedding = client.embeddings.create(
-                model="openai/text-embedding-3-small",
+                model=settings.embedding_model,
                 input=rewritten_q,
             ).data[0].embedding
 
@@ -131,7 +129,7 @@ def main():
             ]
 
             response = client.chat.completions.create(
-                model="openai/gpt-4.1-mini",
+                model=settings.llm_model,
                 messages=messages,
                 max_tokens=1000,
             )
