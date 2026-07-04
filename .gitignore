@@ -136,8 +136,8 @@ data/*.pkl
 data/chunks.pkl
 data/chunk_metadata.pkl
 data/memory.pkl
-documents/
-*.pdf
+#documents/
+#*.pdf
 
 # Virtual environments
 venv/
