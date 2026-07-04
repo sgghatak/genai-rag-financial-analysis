@@ -184,6 +184,9 @@ def main():
                 "does not provide their name",
                 "does not contain any information",
                 "does not contain information",
+                "is not mentioned",
+                "is not provided",
+                "specific name",
             ]
             
             answer_lower = answer.lower()
@@ -194,6 +197,10 @@ def main():
             
             if should_retry_without_context:
                 print(f"[DEBUG] LLM said answer not available, retrying with general knowledge...")
+                
+                # Include chunks as background context (not as the source for answers)
+                background_info = "\n\n".join(retrieved_chunks) if retrieved_chunks else ""
+                
                 messages = [
                     {
                         "role": "system",
@@ -202,7 +209,7 @@ def main():
                 ] + conversation_history + [
                     {
                         "role": "user",
-                        "content": f"Question: {question}",
+                        "content": f"Background context:\n{background_info}\n\nQuestion: {question}",
                     }
                 ]
                 
