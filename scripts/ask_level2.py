@@ -105,26 +105,59 @@ def main():
             ).data[0].embedding
 
             query_vector = np.array([query_embedding], dtype=np.float32)
-            _, vector_indices = index.search(query_vector, k=5)
+            distances, vector_indices = index.search(query_vector, k=5)
 
             bm25_scores = bm25.get_scores(rewritten_q.lower().split())
             bm25_indices = np.argsort(bm25_scores)[::-1][:5]
 
             # Combine results
             combined_indices = list(set(vector_indices[0].tolist() + bm25_indices.tolist()))[:5]
+            
+            # Calculate relevance: use max score from top results, not average
+            if len(combined_indices) > 0:
+                top_vector_index = combined_indices[0]
+                top_vector_sim = 1 / (1 + distances[0][0])  # Best vector match
+                top_bm25_score = bm25_scores[bm25_indices[0]] / max(bm25_scores) if max(bm25_scores) > 0 else 0
+                # Use whichever is higher
+                max_relevance = max(top_vector_sim, top_bm25_score)
+            else:
+                max_relevance = 0
+            
             retrieved_chunks = [chunks[i] for i in combined_indices]
-            context = "\n\n".join(retrieved_chunks)
+            
+            # Check if context is relevant
+            relevance_threshold = 0.4  # Only use context if best match is relevant
+            if max_relevance < relevance_threshold:
+                context = ""
+                context_included = False
+                system_instruction = "You are a helpful assistant. Use your general knowledge to answer this question."
+                print(f"[DEBUG] Max relevance {max_relevance:.3f} below threshold {relevance_threshold}, using general knowledge only")
+            else:
+                context = "\n\n".join(retrieved_chunks)
+                context_included = True
+                system_instruction = (
+                    "You are a helpful assistant. Answer using the provided context. "
+                    "Look carefully through the context for any numerical data, percentages, tables, "
+                    "or comparisons that might answer the question, even if they're not explicitly stated. "
+                    "If the context truly doesn't have the answer, state that clearly and do not speculate."
+                )
+                print(f"[DEBUG] Max relevance {max_relevance:.3f} above threshold {relevance_threshold}, using context")
 
             # Generate response
+            if context_included:
+                user_content = f"Context:\n{context}\n\nQuestion: {question}"
+            else:
+                user_content = f"Question: {question}"
+            
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant. Answer using the provided context only.",
+                    "content": system_instruction,
                 },
             ] + conversation_history + [
                 {
                     "role": "user",
-                    "content": f"Context:\n{context}\n\nQuestion: {question}",
+                    "content": user_content,
                 }
             ]
 
@@ -135,6 +168,50 @@ def main():
             )
 
             answer = response.choices[0].message.content
+            
+            # Check if LLM says the answer is not in context
+            # Trigger fallback for: factual information gaps (names, titles), explicit LLM knowledge limits
+            insufficient_indicators = [
+                "i don't have",
+                "i don't know",
+                "i'm not aware",
+                "no information",
+                "not available in",
+                "not in my training",
+                "does not explicitly mention",
+                "does not mention the name",
+                "does not provide the name",
+                "does not provide their name",
+                "does not contain any information",
+                "does not contain information",
+            ]
+            
+            answer_lower = answer.lower()
+            should_retry_without_context = (
+                context_included and 
+                any(indicator in answer_lower for indicator in insufficient_indicators)
+            )
+            
+            if should_retry_without_context:
+                print(f"[DEBUG] LLM said answer not available, retrying with general knowledge...")
+                messages = [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant. Use your general knowledge to answer this question.",
+                    },
+                ] + conversation_history + [
+                    {
+                        "role": "user",
+                        "content": f"Question: {question}",
+                    }
+                ]
+                
+                response = client.chat.completions.create(
+                    model=settings.llm_model,
+                    messages=messages,
+                    max_tokens=1000,
+                )
+                answer = response.choices[0].message.content
 
             # Update history
             conversation_history.append({"role": "user", "content": question})
