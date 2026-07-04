@@ -27,7 +27,7 @@ class Settings:
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     embedding_model: str = "openai/text-embedding-3-small"
     llm_model: str = "openai/gpt-4.1-mini"
-    pdf_path: Path = PROJECT_ROOT / "docs" / "Fractal-Financial-Results-FY-2025-26.pdf"
+    pdf_path: Path = PROJECT_ROOT / "documents" / "Fractal-Financial-Results-FY-2025-26.pdf"
     data_dir: Path = PROJECT_ROOT / "data"
     tesseract_cmd: str = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
     chunk_size: int = 1000
@@ -42,7 +42,7 @@ class Settings:
         pdf_path = Path(
             os.getenv(
                 "RAG_PDF_PATH",
-                str(PROJECT_ROOT / "docs" / "Fractal-Financial-Results-FY-2025-26.pdf"),
+                str(PROJECT_ROOT / "documents" / "Fractal-Financial-Results-FY-2025-26.pdf"),
             )
         )
         data_dir = Path(os.getenv("RAG_DATA_DIR", str(PROJECT_ROOT / "data")))
