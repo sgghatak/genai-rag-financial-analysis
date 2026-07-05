@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import os
 import pickle
+import re
+import json
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,82 @@ import numpy as np
 from openai import OpenAI
 
 from rag.config import Settings
+
+
+def resolve_question_for_prompt(question: str, rewritten_question: str | None = None) -> str:
+    """Return the rewritten question when it adds useful context; otherwise keep the original."""
+    if rewritten_question and rewritten_question.strip():
+        rewritten = rewritten_question.strip()
+        if rewritten.lower() != question.strip().lower():
+            return rewritten
+    return question.strip()
+
+
+def should_use_web_search(answer: str, *, context_included: bool) -> bool:
+    """Return True when the model reports that the local context did not contain the answer."""
+    if not context_included:
+        return False
+
+    answer_lower = answer.lower().replace("**", "").replace("__", "").replace("_", "")
+    explicit_gap_indicators = [
+        "no information",
+        "not available",
+        "not found in the provided context",
+        "not provided in the context",
+        "the provided information does not mention",
+        "the context does not mention",
+        "does not specify",
+        "does not mention",
+        "does not contain",
+        "does not include information",
+        "does not include the latest",
+        "latest available stock price",
+        "current stock price",
+        "chief executive officer",
+        "ceo",
+    ]
+    return any(indicator in answer_lower for indicator in explicit_gap_indicators)
+
+
+def search_web(query: str, *, max_results: int = 3) -> str:
+    """Fetch a few web search results for a query using Serper when available, else return an empty string."""
+    if not query.strip():
+        return ""
+
+    settings = Settings.from_env()
+    api_key = settings.serper_api_key
+    if api_key:
+        try:
+            response = httpx.post(
+                "https://google.serper.dev/search",
+                json={"q": query, "num": max_results},
+                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                timeout=15.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            results: list[str] = []
+            for item in payload.get("organic", [])[:max_results]:
+                title = item.get("title", "").strip()
+                snippet = item.get("snippet", "").strip()
+                if title or snippet:
+                    results.append(f"{title} - {snippet}".strip(" -"))
+            if results:
+                return "\n".join(f"- {result}" for result in results)
+        except Exception:
+            return ""
+
+    try:
+        response = httpx.get(
+            "https://www.google.com/search",
+            params={"q": query},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        return response.text[:200]
+    except Exception:
+        return ""
 
 
 def create_openai_client(

@@ -67,6 +67,7 @@ genai-rag-financial-analysis/
 4. Create a `.env` file with your API key:
    ```env
    OPENROUTER_API_KEY=your_key_here
+   SERPER_API_KEY=your_serper_key_here
    ```
 
    You can copy `.env.example` for the full list of optional settings.
@@ -170,6 +171,7 @@ Runtime settings are loaded from environment variables by `rag.config.Settings`.
 
 Common settings:
 - `OPENROUTER_API_KEY`: OpenRouter API key
+- `SERPER_API_KEY`: Serper API key for web-search fallback
 - `OPENROUTER_BASE_URL`: OpenAI-compatible API base URL
 - `RAG_EMBEDDING_MODEL`: Embedding model, default `openai/text-embedding-3-small`
 - `RAG_LLM_MODEL`: Chat model, default `openai/gpt-4.1-mini`
@@ -186,6 +188,7 @@ Create `.env` file in project root:
 
 ```env
 OPENROUTER_API_KEY=your_openrouter_api_key
+SERPER_API_KEY=your_serper_api_key
 ```
 
 For this local Windows environment, if OpenSSL fails with `OPENSSL_Applink`, add:
