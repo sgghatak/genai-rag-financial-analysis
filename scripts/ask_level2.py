@@ -13,7 +13,12 @@ from rank_bm25 import BM25Okapi
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rag.config import Settings
-from rag.core import create_openai_client
+from rag.core import (
+    create_openai_client,
+    resolve_question_for_prompt,
+    search_web,
+    should_use_web_search,
+)
 
 settings = Settings.from_env()
 client = create_openai_client()
@@ -42,28 +47,37 @@ def rewrite_query(question: str, history_text: str) -> str:
     if not history_text.strip():
         return question
 
-    response = client.chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {
-                "role": "system",
-                "content": "Rewrite the user's question to be more specific and clear given the conversation context.",
-            },
-            {
-                "role": "user",
-                "content": f"Conversation history:\n{history_text}\n\nNew question: {question}\n\nRewritten question:",
-            },
-        ],
-        max_tokens=100,
-    )
+    try:
+        response = client.chat.completions.create(
+            model=settings.llm_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Rewrite the user's question to be more specific and clear given the conversation context.",
+                },
+                {
+                    "role": "user",
+                    "content": f"Conversation history:\n{history_text}\n\nNew question: {question}\n\nRewritten question:",
+                },
+            ],
+            max_tokens=settings.max_tokens_rewrite,
+        )
 
-    return response.choices[0].message.content.strip()
+        if response and response.choices and response.choices[0].message and response.choices[0].message.content:
+            return response.choices[0].message.content.strip()
+        else:
+            return question
+    except Exception as e:
+        print(f"[WARNING] Query rewrite failed: {e}. Using original question.")
+        return question
 
 
 def main():
     """Run advanced RAG with memory and hybrid search."""
     data_dir = settings.data_dir
     memory_file = data_dir / "memory.pkl"
+    
+    print(f"Using model: {settings.llm_model}")
 
     print("Loading resources...")
     index, chunks, chunk_metadata, bm25 = load_resources(data_dir)
@@ -97,6 +111,8 @@ def main():
                 [f"{msg['role']}: {msg['content'][:100]}..." for msg in conversation_history[-4:]]
             )
             rewritten_q = rewrite_query(question, history_text)
+
+            final_question = resolve_question_for_prompt(question, rewritten_q)
 
             # Hybrid search: Vector + BM25
             query_embedding = client.embeddings.create(
@@ -145,9 +161,9 @@ def main():
 
             # Generate response
             if context_included:
-                user_content = f"Context:\n{context}\n\nQuestion: {question}"
+                user_content = f"Context:\n{context}\n\nQuestion: {final_question}"
             else:
-                user_content = f"Question: {question}"
+                user_content = f"Question: {final_question}"
             
             messages = [
                 {
@@ -164,61 +180,41 @@ def main():
             response = client.chat.completions.create(
                 model=settings.llm_model,
                 messages=messages,
-                max_tokens=1000,
+                max_tokens=settings.max_tokens_response,
             )
 
             answer = response.choices[0].message.content
             
-            # Check if LLM says the answer is not in context
-            # Trigger fallback for: factual information gaps (names, titles), explicit LLM knowledge limits
-            insufficient_indicators = [
-                "i don't have",
-                "i don't know",
-                "i'm not aware",
-                "no information",
-                "not available in",
-                "not in my training",
-                "does not explicitly mention",
-                "does not mention the name",
-                "does not provide the name",
-                "does not provide their name",
-                "does not contain any information",
-                "does not contain information",
-                "is not mentioned",
-                "is not provided",
-                "specific name",
-            ]
-            
-            answer_lower = answer.lower()
-            should_retry_without_context = (
-                context_included and 
-                any(indicator in answer_lower for indicator in insufficient_indicators)
+            should_retry_without_context = should_use_web_search(
+                answer,
+                context_included=context_included,
             )
-            
+
             if should_retry_without_context:
-                print(f"[DEBUG] LLM said answer not available, retrying with general knowledge...")
-                
-                # Include chunks as background context (not as the source for answers)
-                background_info = "\n\n".join(retrieved_chunks) if retrieved_chunks else ""
-                
-                messages = [
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant. Use your general knowledge to answer this question.",
-                    },
-                ] + conversation_history + [
-                    {
-                        "role": "user",
-                        "content": f"Background context:\n{background_info}\n\nQuestion: {question}",
-                    }
-                ]
-                
-                response = client.chat.completions.create(
-                    model=settings.llm_model,
-                    messages=messages,
-                    max_tokens=1000,
-                )
-                answer = response.choices[0].message.content
+                print(f"[DEBUG] LLM said answer not available, asking for permission to search the web...")
+                try:
+                    allow_web_search = input(
+                        "I can search the web for a more up-to-date answer. Do you want me to proceed? (y/n): "
+                    ).strip().lower()
+                except KeyboardInterrupt:
+                    allow_web_search = "n"
+
+                if allow_web_search in {"y", "yes"}:
+                    search_results = search_web(final_question)
+                    if search_results:
+                        answer = (
+                            "I found the following web-search evidence for your question:\n\n"
+                            f"{search_results}\n\n"
+                            "Please verify the latest value from the cited source if you need a live market quote."
+                        )
+                    else:
+                        answer = (
+                            "I couldn't find that detail in the provided context or in the web search results."
+                        )
+                else:
+                    answer = (
+                        "I will not search the web. I can answer from the provided context only."
+                    )
 
             # Update history
             conversation_history.append({"role": "user", "content": question})
